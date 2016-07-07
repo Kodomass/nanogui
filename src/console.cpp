@@ -1,8 +1,5 @@
 /*
-    src/Console.cpp -- Fancy text box with builtin regular
-    expression-based validation
-
-    The text box widget was contributed by Christian Schueller.
+    src/Console.cpp -- Simple console
 
     NanoGUI was developed by Wenzel Jakob <wenzel.jakob@epfl.ch>.
     The widget drawing code is based on the NanoVG demo application
@@ -14,6 +11,7 @@
 
 #include <nanogui/window.h>
 #include <nanogui/screen.h>
+#include <nanogui/layout.h>
 #include <nanogui/console.h>
 #include <nanogui/opengl.h>
 #include <nanogui/theme.h>
@@ -22,16 +20,14 @@
 
 NAMESPACE_BEGIN(nanogui)
 
-Console::Console(Widget *parent,const std::string &value)
+Console::Console(Widget *parent)
     : Widget(parent),
       mEditable(false),
       mCommitted(true),
-      mValue(value),
       mDefaultValue(""),
-      mAlignment(Alignment::Center),
+      mAlignment(CAlignment::Center),
       mFormat(""),
       mValidFormat(true),
-      mValueTemp(value),
       mCursorPos(-1),
       mSelectionPos(-1),
       mMousePos(Vector2i(-1,-1)),
@@ -39,8 +35,25 @@ Console::Console(Widget *parent,const std::string &value)
       mMouseDragPos(Vector2i(-1,-1)),
       mMouseDownModifier(0),
       mTextOffset(0),
-      mLastClick(0) {
+      mLastClick(0),
+      mNumRows(5),
+      mRows(mNumRows) {
+    GridLayout *layout =
+        new GridLayout(Orientation::Horizontal, 1,
+                       Alignment::Middle, 5, 0);
+    //layout->setColAlignment(
+    //    { Alignment::Maximum, Alignment::Fill });
+    //layout->setSpacing(2);
+    this->setLayout(layout);
+
     if (mTheme) mFontSize = mTheme->mTextBoxFontSize;
+
+    for(int i=mNumRows-1;i>=0;--i) {
+        mRows[i] = new ConsoleRow(this, i);
+        mRows[i]->setFixedSize(Vector2i(600, 25));
+    }
+    mRows[0]->setEditable(true);
+
 }
 
 void Console::setEditable(bool editable) {
@@ -55,12 +68,14 @@ void Console::setTheme(Theme *theme) {
 }
 
 Vector2i Console::preferredSize(NVGcontext *ctx) const {
-    Vector2i size(0, fontSize() * 1.4f);
+    Vector2i size(0, fontSize() * 1.4f * mNumRows);
 
-    float uw = 0;
+    float magic_width    = 600.0f;
+    size(0) = magic_width;
 
-    float ts = nvgTextBounds(ctx, 0, 0, mValue.c_str(), nullptr, nullptr);
-    size(0) = size(1) + ts + uw;
+//    float ts = nvgTextBounds(ctx, 0, 0, mValue.c_str(), nullptr, nullptr);
+//    size(0) = size(1) + ts ;
+//
     return size;
 }
 
@@ -104,15 +119,15 @@ void Console::draw(NVGcontext* ctx) {
 
 
     switch (mAlignment) {
-        case Alignment::Left:
+        case CAlignment::Left:
             nvgTextAlign(ctx, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
             drawPos.x() += xSpacing;
             break;
-        case Alignment::Right:
+        case CAlignment::Right:
             nvgTextAlign(ctx, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
             drawPos.x() += mSize.x() - unitWidth - xSpacing;
             break;
-        case Alignment::Center:
+        case CAlignment::Center:
             nvgTextAlign(ctx, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
             drawPos.x() += mSize.x() * 0.5f;
             break;

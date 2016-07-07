@@ -63,11 +63,11 @@ public:
         window->setLayout(new GroupLayout());
 
         Console *console = new Console(window);
-        console->setFixedSize(Vector2i(400, 200));
-        console->setValue("Some initial text \n with line break");
+//        console->setFixedSize(Vector2i(400, 200));
+//        console->setValue("Some initial text \n with line break");
         console->setFontSize(20);
-        console->setEditable(true);
-        console->setAlignment(Console::Alignment::Left);
+//        console->setEditable(true);
+//        console->setAlignment(Console::Alignment::Left);
 
 
         performLayout();

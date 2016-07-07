@@ -1,8 +1,5 @@
 /*
-    nanogui/Console.h -- Fancy text box with builtin regular
-    expression-based validation
-
-    The text box widget was contributed by Christian Schueller.
+    nanogui/Console.h -- Simple console.
 
     NanoGUI was developed by Wenzel Jakob <wenzel.jakob@epfl.ch>.
     The widget drawing code is based on the NanoVG demo application
@@ -16,19 +13,31 @@
 
 #include <nanogui/compat.h>
 #include <nanogui/widget.h>
+#include <nanogui/textbox.h>
 #include <sstream>
 
 NAMESPACE_BEGIN(nanogui)
 
+class ConsoleRow : public TextBox {
+
+public:
+
+    ConsoleRow(Widget *parent, int id, const std::string &value = "") :  TextBox(parent, value), mId(id) {}
+
+private:
+    int mId;
+
+};
+
 class NANOGUI_EXPORT Console : public Widget {
 public:
-    enum class Alignment {
+    enum class CAlignment {
         Left,
         Center,
         Right
     };
 
-    Console(Widget *parent, const std::string &value = "Untitled");
+    Console(Widget *parent);
 
     bool editable() const { return mEditable; }
     void setEditable(bool editable);
@@ -39,8 +48,8 @@ public:
     const std::string &defaultValue() const { return mDefaultValue; }
     void setDefaultValue(const std::string &defaultValue) { mDefaultValue = defaultValue; }
 
-    Alignment alignment() const { return mAlignment; }
-    void setAlignment(Alignment align) { mAlignment = align; }
+    CAlignment alignment() const { return mAlignment; }
+    void setAlignment(CAlignment align) { mAlignment = align; }
 
     /// Return the underlying regular expression specifying valid formats
     const std::string &format() const { return mFormat; }
@@ -83,7 +92,7 @@ protected:
     bool mCommitted;
     std::string mValue;
     std::string mDefaultValue;
-    Alignment mAlignment;
+    CAlignment mAlignment;
     std::string mFormat;
     std::function<bool(const std::string& str)> mCallback;
     bool mValidFormat;
@@ -96,7 +105,8 @@ protected:
     int mMouseDownModifier;
     float mTextOffset;
     double mLastClick;
-    int mRows;
+    int mNumRows;
+    std::vector<ConsoleRow *> mRows;
 };
 
 NAMESPACE_END(nanogui)
