@@ -32,6 +32,7 @@
 #include <nanogui/graph.h>
 #include <nanogui/tabwidget.h>
 #include <nanogui/console.h>
+#include <nanogui/theme.h>
 #if defined(_WIN32)
 #include <windows.h>
 #endif
@@ -54,21 +55,33 @@ public:
         window->setPosition(Vector2i(15, 15));
         window->setLayout(new GroupLayout());
         mProgress = new ProgressBar(window);
+//        mProgress->setFixedSize({300,300});
 
               
+        window = new Window(this, "Text Area");
+        window->setPosition(Vector2i(150, 15));
+        window->setLayout(new GroupLayout());
+        Console *console = new Console(window);
+        console->setFixedSize({300, 550});
+ 
+        //TextArea *textarea = new TextArea(window);
+        //textarea->setFixedSize({300, 150});
+        
+        
+        
         // Console example 
         //
-        window = new Window(this, "Simple Console");
-        window->setPosition(Vector2i(145, 15));
-        window->setLayout(new GroupLayout());
+//        window = new Window(this, "Simple Console");
+//        window->setPosition(Vector2i(145, 15));
+//        window->setLayout(new GroupLayout());
+//
 
-        Console *console = new Console(window);
-//        console->setFixedSize(Vector2i(400, 200));
-//        console->setValue("Some initial text \n with line break");
-        console->setFontSize(20);
-//        console->setEditable(true);
-//        console->setAlignment(Console::Alignment::Left);
 
+        //Console *console = new Console(window);
+//        console->setFixedSize(Vector2i(600, 400));
+        //console->setTheme(new ConsoleTheme(this->nvgContext()));
+        //console->setValue("Some initial text \n with line break");
+        //console->setFontSize(16);
 
         performLayout();
 

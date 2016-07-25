@@ -17,482 +17,218 @@
 #include <nanogui/theme.h>
 #include <nanogui/serializer/core.h>
 #include <regex>
+#include <nanogui_resources.h>
+#include <iostream>
+#include <algorithm>
 
 NAMESPACE_BEGIN(nanogui)
 
-Console::Console(Widget *parent)
-    : Widget(parent),
-      mEditable(false),
-      mCommitted(true),
-      mDefaultValue(""),
-      mAlignment(CAlignment::Center),
-      mFormat(""),
-      mValidFormat(true),
-      mCursorPos(-1),
-      mSelectionPos(-1),
+Console::Console(Widget *parent):
+    Widget(parent),
+    mCommitted(true),
+    mScroll(0.0f),
+    current_index(99),
+    mInit(true),
+      mCaret(this),
       mMousePos(Vector2i(-1,-1)),
       mMouseDownPos(Vector2i(-1,-1)),
       mMouseDragPos(Vector2i(-1,-1)),
-      mMouseDownModifier(0),
-      mTextOffset(0),
-      mLastClick(0),
-      mNumRows(5),
-      mRows(mNumRows) {
-    GridLayout *layout =
-        new GridLayout(Orientation::Horizontal, 1,
-                       Alignment::Middle, 5, 0);
-    //layout->setColAlignment(
-    //    { Alignment::Maximum, Alignment::Fill });
-    //layout->setSpacing(2);
-    this->setLayout(layout);
+      mMouseDownModifier(0)
+{
+    //mText = {"The very first entry","Entry 0", "Entry 1", "Entry 2",
+    //    "Entry 3","Entry 4","Entry 5","Entry 6",
+    //    "Entry 7 On a clear sunny day, the sky above us looks bright blue. "
+    //        "In the evening, the sunset puts on a brilliant show of reds, pinks and oranges.End.",
+    //    "Entry 8","Entry 9", "Entry 10", "The very last entry"};
+    for(int i=0;i<5;++i){
 
-    if (mTheme) mFontSize = mTheme->mTextBoxFontSize;
-
-    for(int i=mNumRows-1;i>=0;--i) {
-        mRows[i] = new ConsoleRow(this, i);
-        mRows[i]->setFixedSize(Vector2i(600, 25));
+        mHistory.push_back("text string "+std::to_string(i+1)+" of 100: " 
+        + "On a clear sunny day, the sky above us looks bright blue. " +
+            "In the evening, the sunset puts on a brilliant show of reds, pinks and oranges.End.");
     }
-    mRows[0]->setEditable(true);
 
+    mCommand.emplace_back("");
+
+    mTopPart = 1;
+    mTopRow = 0;
+    mTopSubrow = 0;
+
+    std::cout << "mPos = " << mPos.x() << "," << mPos.y() << std::endl;
 }
 
-void Console::setEditable(bool editable) {
-    mEditable = editable;
-    setCursor(editable ? Cursor::IBeam : Cursor::Arrow);
+//void Console::performLayout(NVGcontext *ctx) {
+//    Widget::performLayout(ctx);
+//}
+
+Vector2i Console::preferredSize(NVGcontext * /*ctx*/) const {
+    return Vector2i(100, 100);
 }
 
-void Console::setTheme(Theme *theme) {
-    Widget::setTheme(theme);
-    if (mTheme)
-        mFontSize = mTheme->mTextBoxFontSize;
-}
+void Console::draw(NVGcontext* ctx){
+    Widget::draw(ctx);  
 
-Vector2i Console::preferredSize(NVGcontext *ctx) const {
-    Vector2i size(0, fontSize() * 1.4f * mNumRows);
+    //Screen *sc = dynamic_cast<Screen *>(this->window()->parent());
 
-    float magic_width    = 600.0f;
-    size(0) = magic_width;
-
-//    float ts = nvgTextBounds(ctx, 0, 0, mValue.c_str(), nullptr, nullptr);
-//    size(0) = size(1) + ts ;
-//
-    return size;
-}
-
-void Console::draw(NVGcontext* ctx) {
-    Widget::draw(ctx);
-
-    NVGpaint bg = nvgBoxGradient(ctx,
-        mPos.x() + 1, mPos.y() + 1 + 1.0f, mSize.x() - 2, mSize.y() - 2,
-        3, 4, Color(255, 32), Color(32, 32)); 
-    NVGpaint fg1 = nvgBoxGradient(ctx,
-        mPos.x() + 1, mPos.y() + 1 + 1.0f, mSize.x() - 2, mSize.y() - 2,
-        3, 4, Color(150, 32), Color(32, 32));
-    NVGpaint fg2 = nvgBoxGradient(ctx, 
-        mPos.x() + 1, mPos.y() + 1 + 1.0f, mSize.x() - 2, mSize.y() - 2,
-        3, 4, nvgRGBA(255, 0, 0, 100), nvgRGBA(255, 0, 0, 50));
-
+    // Draw rounded rectangel around text area ////////////////////
+    NVGpaint paint = nvgBoxGradient(
+        ctx, mPos.x() + 1, mPos.y() + 1,
+        mSize.x()-2, mSize.y(), 3, 4, Color(0, 32), Color(0, 92));
     nvgBeginPath(ctx);
-    nvgRoundedRect(ctx, mPos.x() + 1, mPos.y() + 1 + 1.0f, mSize.x() - 2,
-                   mSize.y() - 2, 3);
-
-    if(mEditable && focused())
-        mValidFormat ? nvgFillPaint(ctx, fg1) : nvgFillPaint(ctx, fg2);
-    else
-        nvgFillPaint(ctx, bg);
-
+    nvgRoundedRect(ctx, mPos.x(), mPos.y(), mSize.x(), mSize.y(), 3);
+    nvgFillPaint(ctx, paint);
     nvgFill(ctx);
-
-    nvgBeginPath(ctx);
-    nvgRoundedRect(ctx, mPos.x() + 0.5f, mPos.y() + 0.5f, mSize.x() - 1,
-                   mSize.y() - 1, 2.5f);
-    nvgStrokeColor(ctx, Color(0, 48));
-    nvgStroke(ctx);
-
-    nvgFontSize(ctx, fontSize());
-    nvgFontFace(ctx, "sans");
-    Vector2i drawPos(mPos.x(), mPos.y() + mSize.y() * 0.5f + 1);
-
-    float xSpacing = mSize.y() * 0.3f;
-
-    float unitWidth = 0;
-
-
-    switch (mAlignment) {
-        case CAlignment::Left:
-            nvgTextAlign(ctx, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-            drawPos.x() += xSpacing;
-            break;
-        case CAlignment::Right:
-            nvgTextAlign(ctx, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
-            drawPos.x() += mSize.x() - unitWidth - xSpacing;
-            break;
-        case CAlignment::Center:
-            nvgTextAlign(ctx, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-            drawPos.x() += mSize.x() * 0.5f;
-            break;
-    }
-
-    nvgFontSize(ctx, fontSize());
-    nvgFillColor(ctx,
-                 mEnabled ? mTheme->mTextColor : mTheme->mDisabledTextColor);
-
-    // clip visible text area
-    float clipX = mPos.x() + xSpacing - 1.0f;
-    float clipY = mPos.y() + 1.0f;
-    float clipWidth = mSize.x() - unitWidth - 2 * xSpacing + 2.0f;
-    float clipHeight = mSize.y() - 3.0f;
-    nvgScissor(ctx, clipX, clipY, clipWidth, clipHeight);
-
-    Vector2i oldDrawPos(drawPos);
-    drawPos.x() += mTextOffset;
+    ///////////////////////////////////////////////////////////////
     
-    if (mCommitted) {
-        nvgText(ctx, drawPos.x(), drawPos.y(), mValue.c_str(), nullptr);
-    } else {
-        const int maxGlyphs = 1024;
-        NVGglyphPosition glyphs[maxGlyphs];
-        float textBound[4];
-        nvgTextBounds(ctx, drawPos.x(), drawPos.y(), mValueTemp.c_str(),
-                      nullptr, textBound);
-        float lineh = textBound[3] - textBound[1];
 
-        // find cursor positions
-        int nglyphs =
-            nvgTextGlyphPositions(ctx, drawPos.x(), drawPos.y(),
-                                  mValueTemp.c_str(), nullptr, glyphs, maxGlyphs);
-        updateCursor(ctx, textBound[2], glyphs, nglyphs);
 
-        // compute text offset
-        int prevCPos = mCursorPos > 0 ? mCursorPos - 1 : 0;
-        int nextCPos = mCursorPos < nglyphs ? mCursorPos + 1 : nglyphs;
-        float prevCX = cursorIndex2Position(prevCPos, textBound[2], glyphs, nglyphs);
-        float nextCX = cursorIndex2Position(nextCPos, textBound[2], glyphs, nglyphs);
-
-        if (nextCX > clipX + clipWidth)
-            mTextOffset -= nextCX - (clipX + clipWidth) + 1;
-        if (prevCX < clipX)
-            mTextOffset += clipX - prevCX + 1;
-
-        drawPos.x() = oldDrawPos.x() + mTextOffset;
-
-        // draw text with offset
-        nvgText(ctx, drawPos.x(), drawPos.y(), mValueTemp.c_str(), nullptr);
-        nvgTextBounds(ctx, drawPos.x(), drawPos.y(), mValueTemp.c_str(),
-                      nullptr, textBound);
-
-        // recompute cursor positions
-        nglyphs = nvgTextGlyphPositions(ctx, drawPos.x(), drawPos.y(),
-                mValueTemp.c_str(), nullptr, glyphs, maxGlyphs);
-
-        if (mCursorPos > -1) {
-            if (mSelectionPos > -1) {
-                float caretx = cursorIndex2Position(mCursorPos, textBound[2],
-                                                    glyphs, nglyphs);
-                float selx = cursorIndex2Position(mSelectionPos, textBound[2],
-                                                  glyphs, nglyphs);
-
-                if (caretx > selx)
-                    std::swap(caretx, selx);
-
-                // draw selection
-                nvgBeginPath(ctx);
-                nvgFillColor(ctx, nvgRGBA(255, 255, 255, 80));
-                nvgRect(ctx, caretx, drawPos.y() - lineh * 0.5f, selx - caretx,
-                        lineh);
-                nvgFill(ctx);
-            }
-
-            float caretx = cursorIndex2Position(mCursorPos, textBound[2], glyphs, nglyphs);
-
-            // draw cursor
-            nvgBeginPath(ctx);
-            nvgMoveTo(ctx, caretx, drawPos.y() - lineh * 0.5f);
-            nvgLineTo(ctx, caretx, drawPos.y() + lineh * 0.5f);
-            nvgStrokeColor(ctx, nvgRGBA(255, 192, 0, 255));
-            nvgStrokeWidth(ctx, 1.0f);
-            nvgStroke(ctx);
-        }
+    nvgFontSize(ctx, 18.0f);
+    nvgFontFace(ctx, "sans");
+    nvgTextAlign(ctx, NVG_ALIGN_LEFT|NVG_ALIGN_TOP);
+    float x, y, linew, lineh;
+    nvgTextMetrics(ctx, nullptr, nullptr, &lineh);
+    x = mPos.x();
+    y = mPos.y();
+    linew = mSize.x();
+    
+    mNumRows = mSize.y()/lineh ; // make sure that the size of console is updated
+    //setSize(Vector2i(mSize.x(), nrows*lineh)); // this code does not work. It
+    //changes size each frame. Move from draw into one time function.
+    
+    // init console output 
+    if(mInit) {
+        initBuffer(ctx, linew);
+        mInit = false;
     }
+    //typedef std::deque<std::string> Buffer_t;
 
-    nvgResetScissor(ctx);
+    //temp solution: when buffer is not full. Move this to updateFunction.
+    for(auto it = mBuffer.begin();it!=mBuffer.end();++it) {
+
+        nvgBeginPath(ctx);
+        nvgFillColor(ctx, nvgRGBA(255,255,255,16));
+        nvgRect(ctx, x, y, linew, lineh);
+        nvgFill(ctx);
+
+        nvgFillColor(ctx, nvgRGBA(255,255,255,255));
+        nvgText(ctx, x, y, it->c_str(), nullptr);
+        
+        y += lineh;
+    }
+   
+    updateCursor(ctx, lineh);
+    //update cursor and draw
+    //mCaret.onClick(ctx, lineh, mMouseDownPos - mPos);
+    mCaret.draw(ctx, lineh, mPos);
 }
 
-bool Console::mouseButtonEvent(const Vector2i &p, int button, bool down,
-                               int modifiers) {
-    Widget::mouseButtonEvent(p, button, down, modifiers);
+bool Caret::isVisible() {
+    return mPos.x() > -1 && mPos.y() > -1;
+}
 
-    if (mEditable && focused() && button == GLFW_MOUSE_BUTTON_1) {
-        if (down) {
-            mMouseDownPos = p;
-            mMouseDownModifier = modifiers;
+void Caret::draw(NVGcontext *ctx, float lineh, Vector2i offset) {
+    
+    //std::cout << "Cursor("<< mCursorPos.x()<< ","<< mCursorPos.y() <<")" << std::endl;
 
+    if(isVisible()) {
+        //float caretx = cursorIndex2Position(mCursorPos.x(), textBound[2], glyphs, nglyphs);
+        //mPosition = getCursorPosition(ctx, mCursorPos, lineh);
+
+        // draw cursor
+        nvgBeginPath(ctx);
+        nvgMoveTo(ctx, offset.x() + mPos.x(), offset.y()+ mPos.y()  );
+        nvgLineTo(ctx, offset.x() + mPos.x(), offset.y()+ mPos.y()+ lineh );
+        
+        nvgStrokeColor(ctx, nvgRGBA(255, 192, 0, 255));
+        nvgStrokeWidth(ctx, 1.0f);
+        nvgStroke(ctx);
+    }
+
+    if(mSelectionState) {
+        // draw selection
+        int linew = mConsole->mSize.x();
+        nvgBeginPath(ctx);
+        nvgFillColor(ctx, nvgRGBA(255, 255, 255, 80));
+        if(mIdx.y() == mSelectionIdx.y()) {
+            int x = std::min(mPos.x(),mSelectionPos.x());
+            x += offset.x();
+            nvgRect(ctx, x, offset.y()+ mPos.y(), std::abs(mSelectionPos.x()-mPos.x()), lineh);
+        } else if(mIdx.y() > mSelectionIdx.y()) {
+            nvgRect(ctx, offset.x()+mSelectionPos.x(), offset.y()+ mSelectionPos.y(), 
+                    linew-mSelectionPos.x(), lineh);
+            if(mIdx.y()-mSelectionIdx.y()>1)
+                nvgRect(ctx, offset.x(), offset.y()+ mSelectionPos.y()+lineh, 
+                    linew, mPos.y()-mSelectionPos.y()-lineh);
+            nvgRect(ctx, offset.x(), offset.y()+ mPos.y(), mPos.x(), lineh);
+        } else {
+            nvgRect(ctx, offset.x(), offset.y()+ mSelectionPos.y(), 
+                    mSelectionPos.x(), lineh);
+            if(mSelectionIdx.y()-mIdx.y()>1)
+                nvgRect(ctx, offset.x(), offset.y()+ mPos.y()+lineh, 
+                    linew, mSelectionPos.y()-mPos.y()-lineh);
+            nvgRect(ctx, offset.x()+mPos.x(), offset.y()+ mPos.y(), linew-mPos.x(), lineh);
+        }
+        nvgFill(ctx);
+    }
+}
+
+void Caret::onClick(NVGcontext *ctx, float lineh, Vector2i clickPos){
+    if (clickPos.x() > -1) {
+        mIdx.y() = (int) clickPos.y()/lineh;
+        //std::cout << "mPos = " << mConsole->mPos.x() << "," << mConsole->mPos.y() << std::endl;
+
+        if(mIdx.y() < (int)mConsole->mBuffer.size()){
+            //std::cout << mBuffer.at(mCursorPosY)<< std::endl;
             double time = glfwGetTime();
             if (time - mLastClick < 0.25) {
-                /* Double-click: select all text */
-                mSelectionPos = 0;
-                mCursorPos = (int) mValueTemp.size();
-                mMouseDownPos = Vector2i(-1, 1);
+                /* Double-click: select a line */
+                int linew = mConsole->mSize.x();
+                mSelectionIdx = Vector2i(0,(int) clickPos.y()/lineh); 
+                mSelectionPos = Vector2i(0,mSelectionIdx.y()*lineh);
+                mIdx = Vector2i(mConsole->mBuffer[mSelectionIdx.y()].size(), mSelectionIdx.y());
+                mPos = Vector2i(linew, mSelectionPos.y());
+                mSelectionState = true;
+                std::cout << "Sel : " << mSelectionPos.x() << "," << mSelectionPos.y() << std::endl;
+                std::cout << "Pos : " << mPos.x() << "," << mPos.y() << std::endl;
+            }
+            else { 
+                const int maxGlyphs = 1024;
+                NVGglyphPosition glyphs[maxGlyphs];
+                const std::string& textLine = mConsole->mBuffer[mIdx.y()];
+                float textBound[4];
+
+                nvgTextBounds(ctx, 0, 0, textLine.c_str(), nullptr, textBound);
+                int nglyphs = nvgTextGlyphPositions(ctx, 0, 0, textLine.c_str(),
+                        nullptr, glyphs, maxGlyphs);
+
+                mIdx.x() = position2CursorIndex(clickPos.x(), textBound[2], glyphs, nglyphs);
+         
+                //update carete position now
+                mPos.y() = mIdx.y() * lineh;
+                mPos.x() = cursorIndex2Position(mIdx.x(), textBound[2], glyphs, nglyphs);
             }
             mLastClick = time;
-        } else {
-            mMouseDownPos = Vector2i(-1, -1);
-            mMouseDragPos = Vector2i(-1, -1);
         }
-        return true;
     }
-
-    return false;
 }
 
-bool Console::mouseMotionEvent(const Vector2i &p, const Vector2i & /* rel */,
-                               int /* button */, int /* modifiers */) {
-    if (mEditable && focused()) {
-        mMousePos = p;
-        return true;
-    }
-    return false;
+void Caret::updatePosFromIdx(NVGcontext *ctx) {
+    
+    float lineh;
+    nvgTextMetrics(ctx, nullptr, nullptr, &lineh);
+    const int maxGlyphs = 1024;
+    NVGglyphPosition glyphs[maxGlyphs];
+    const std::string& textLine = mConsole->mBuffer[mIdx.y()];
+    float textBound[4];
+
+    nvgTextBounds(ctx, 0, 0, textLine.c_str(), nullptr, textBound);
+    int nglyphs = nvgTextGlyphPositions(ctx, 0, 0, textLine.c_str(),
+            nullptr, glyphs, maxGlyphs);
+
+    //update carete position now
+    mPos.y() = mIdx.y() * lineh;
+    mPos.x() = cursorIndex2Position(mIdx.x(), textBound[2], glyphs, nglyphs);
 }
-
-bool Console::mouseDragEvent(const Vector2i &p, const Vector2i &/* rel */,
-                             int /* button */, int /* modifiers */) {
-    if (mEditable && focused()) {
-        mMouseDragPos = p;
-        return true;
-    }
-    return false;
-}
-
-bool Console::mouseEnterEvent(const Vector2i &p, bool enter) {
-    Widget::mouseEnterEvent(p, enter);
-    return false;
-}
-
-bool Console::focusEvent(bool focused) {
-    Widget::focusEvent(focused);
-
-    std::string backup = mValue;
-
-    if (mEditable) {
-        if (focused) {
-            mValueTemp = mValue;
-            mCommitted = false;
-            mCursorPos = 0;
-        } else {
-            if (mValidFormat) {
-                if (mValueTemp == "")
-                    mValue = mDefaultValue;
-                else
-                    mValue = mValueTemp;
-            }
-
-            if (mCallback && !mCallback(mValue))
-                mValue = backup;
-
-            mValidFormat = true;
-            mCommitted = true;
-            mCursorPos = -1;
-            mSelectionPos = -1;
-            mTextOffset = 0;
-        }
-
-        mValidFormat = (mValueTemp == "") || checkFormat(mValueTemp, mFormat);
-    }
-
-    return true;
-}
-
-bool Console::keyboardEvent(int key, int /* scancode */, int action, int modifiers) {
-    if (mEditable && focused()) {
-        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-            if (key == GLFW_KEY_LEFT) {
-                if (modifiers == GLFW_MOD_SHIFT) {
-                    if (mSelectionPos == -1)
-                        mSelectionPos = mCursorPos;
-                } else {
-                    mSelectionPos = -1;
-                }
-
-                if (mCursorPos > 0)
-                    mCursorPos--;
-            } else if (key == GLFW_KEY_RIGHT) {
-                if (modifiers == GLFW_MOD_SHIFT) {
-                    if (mSelectionPos == -1)
-                        mSelectionPos = mCursorPos;
-                } else {
-                    mSelectionPos = -1;
-                }
-
-                if (mCursorPos < (int) mValueTemp.length())
-                    mCursorPos++;
-            } else if (key == GLFW_KEY_HOME) {
-                if (modifiers == GLFW_MOD_SHIFT) {
-                    if (mSelectionPos == -1)
-                        mSelectionPos = mCursorPos;
-                } else {
-                    mSelectionPos = -1;
-                }
-
-                mCursorPos = 0;
-            } else if (key == GLFW_KEY_END) {
-                if (modifiers == GLFW_MOD_SHIFT) {
-                    if (mSelectionPos == -1)
-                        mSelectionPos = mCursorPos;
-                } else {
-                    mSelectionPos = -1;
-                }
-
-                mCursorPos = (int) mValueTemp.size();
-            } else if (key == GLFW_KEY_BACKSPACE) {
-                if (!deleteSelection()) {
-                    if (mCursorPos > 0) {
-                        mValueTemp.erase(mValueTemp.begin() + mCursorPos - 1);
-                        mCursorPos--;
-                    }
-                }
-            } else if (key == GLFW_KEY_DELETE) {
-                if (!deleteSelection()) {
-                    if (mCursorPos < (int) mValueTemp.length())
-                        mValueTemp.erase(mValueTemp.begin() + mCursorPos);
-                }
-            } else if (key == GLFW_KEY_ENTER) {
-                if (!mCommitted)
-                    focusEvent(false);
-            } else if (key == GLFW_KEY_A && modifiers == SYSTEM_COMMAND_MOD) {
-                mCursorPos = (int) mValueTemp.length();
-                mSelectionPos = 0;
-            } else if (key == GLFW_KEY_X && modifiers == SYSTEM_COMMAND_MOD) {
-                copySelection();
-                deleteSelection();
-            } else if (key == GLFW_KEY_C && modifiers == SYSTEM_COMMAND_MOD) {
-                copySelection();
-            } else if (key == GLFW_KEY_V && modifiers == SYSTEM_COMMAND_MOD) {
-                deleteSelection();
-                pasteFromClipboard();
-            }
-
-            mValidFormat =
-                (mValueTemp == "") || checkFormat(mValueTemp, mFormat);
-        }
-
-        return true;
-    }
-
-    return false;
-}
-
-bool Console::keyboardCharacterEvent(unsigned int codepoint) {
-    if (mEditable && focused()) {
-        std::ostringstream convert;
-        convert << (char) codepoint;
-
-        deleteSelection();
-        mValueTemp.insert(mCursorPos, convert.str());
-        mCursorPos++;
-
-        mValidFormat = (mValueTemp == "") || checkFormat(mValueTemp, mFormat);
-
-        return true;
-    }
-
-    return false;
-}
-
-bool Console::checkFormat(const std::string &input, const std::string &format) {
-    if (format.empty())
-        return true;
-    std::regex regex(format);
-    return regex_match(input, regex);
-}
-
-bool Console::copySelection() {
-    if (mSelectionPos > -1) {
-        Screen *sc = dynamic_cast<Screen *>(this->window()->parent());
-
-        int begin = mCursorPos;
-        int end = mSelectionPos;
-
-        if (begin > end)
-            std::swap(begin, end);
-
-        glfwSetClipboardString(sc->glfwWindow(),
-                               mValueTemp.substr(begin, end).c_str());
-        return true;
-    }
-
-    return false;
-}
-
-void Console::pasteFromClipboard() {
-    Screen *sc = dynamic_cast<Screen *>(this->window()->parent());
-    std::string str(glfwGetClipboardString(sc->glfwWindow()));
-    mValueTemp.insert(mCursorPos, str);
-}
-
-bool Console::deleteSelection() {
-    if (mSelectionPos > -1) {
-        int begin = mCursorPos;
-        int end = mSelectionPos;
-
-        if (begin > end)
-            std::swap(begin, end);
-
-        if (begin == end - 1)
-            mValueTemp.erase(mValueTemp.begin() + begin);
-        else
-            mValueTemp.erase(mValueTemp.begin() + begin,
-                             mValueTemp.begin() + end);
-
-        mCursorPos = begin;
-        mSelectionPos = -1;
-        return true;
-    }
-
-    return false;
-}
-
-void Console::updateCursor(NVGcontext *, float lastx,
-                           const NVGglyphPosition *glyphs, int size) {
-    // handle mouse cursor events
-    if (mMouseDownPos.x() != -1) {
-        if (mMouseDownModifier == GLFW_MOD_SHIFT) {
-            if (mSelectionPos == -1)
-                mSelectionPos = mCursorPos;
-        } else
-            mSelectionPos = -1;
-
-        mCursorPos =
-            position2CursorIndex(mMouseDownPos.x(), lastx, glyphs, size);
-
-        mMouseDownPos = Vector2i(-1, -1);
-    } else if (mMouseDragPos.x() != -1) {
-        if (mSelectionPos == -1)
-            mSelectionPos = mCursorPos;
-
-        mCursorPos =
-            position2CursorIndex(mMouseDragPos.x(), lastx, glyphs, size);
-    } else {
-        // set cursor to last character
-        if (mCursorPos == -2)
-            mCursorPos = size;
-    }
-
-    if (mCursorPos == mSelectionPos)
-        mSelectionPos = -1;
-}
-
-float Console::cursorIndex2Position(int index, float lastx,
-                                    const NVGglyphPosition *glyphs, int size) {
-    float pos = 0;
-    if (index == size)
-        pos = lastx; // last character
-    else
-        pos = glyphs[index].x;
-
-    return pos;
-}
-
-int Console::position2CursorIndex(float posx, float lastx,
+int Caret::position2CursorIndex(float posx, float lastx,
                                   const NVGglyphPosition *glyphs, int size) {
     int mCursorId = 0;
     float caretx = glyphs[mCursorId].x;
@@ -508,35 +244,304 @@ int Console::position2CursorIndex(float posx, float lastx,
     return mCursorId;
 }
 
-void Console::save(Serializer &s) const {
-    Widget::save(s);
-    s.set("editable", mEditable);
-    s.set("committed", mCommitted);
-    s.set("value", mValue);
-    s.set("defaultValue", mDefaultValue);
-    s.set("alignment", (int) mAlignment);
-    s.set("format", mFormat);
-    s.set("validFormat", mValidFormat);
-    s.set("valueTemp", mValueTemp);
-    s.set("cursorPos", mCursorPos);
-    s.set("selectionPos", mSelectionPos);
+float Caret::cursorIndex2Position(int index, float lastx,
+                                    const NVGglyphPosition *glyphs, int size) {
+    float pos = 0;
+    if (index == size)
+        pos = lastx; // last character
+    else
+        pos = glyphs[index].x;
+
+    return pos;
 }
 
-bool Console::load(Serializer &s) {
-    if (!Widget::load(s)) return false;
-    if (!s.get("editable", mEditable)) return false;
-    if (!s.get("committed", mCommitted)) return false;
-    if (!s.get("value", mValue)) return false;
-    if (!s.get("defaultValue", mDefaultValue)) return false;
-    if (!s.get("alignment", mAlignment)) return false;
-    if (!s.get("format", mFormat)) return false;
-    if (!s.get("validFormat", mValidFormat)) return false;
-    if (!s.get("valueTemp", mValueTemp)) return false;
-    if (!s.get("cursorPos", mCursorPos)) return false;
-    if (!s.get("selectionPos", mSelectionPos)) return false;
-    mMousePos = mMouseDownPos = mMouseDragPos = Vector2i::Constant(-1);
-    mMouseDownModifier = mTextOffset = 0;
+void Caret::moveLeft() {
+    if(mIdx.x() > 0) {
+        --mIdx.x();
+        Screen *sc = dynamic_cast<Screen *>(mConsole->window()->parent());
+        updatePosFromIdx(sc->nvgContext());
+    }
+}
+
+void Caret::moveRight() {
+    const std::string& textLine = mConsole->mBuffer[mIdx.y()];
+    if(mIdx.x() < (int) textLine.size()) {
+        ++mIdx.x();
+        Screen *sc = dynamic_cast<Screen *>(mConsole->window()->parent());
+        updatePosFromIdx(sc->nvgContext());
+    }
+}
+
+void Caret::moveUp() {
+    if(mIdx.y() > 0) {
+        --mIdx.y();
+        int textSize = (int) mConsole->mBuffer[mIdx.y()].size();
+        if(mIdx.x() >= textSize) 
+            mIdx.x() = textSize;
+        Screen *sc = dynamic_cast<Screen *>(mConsole->window()->parent());
+        updatePosFromIdx(sc->nvgContext());
+    }
+}
+
+void Caret::moveDown() {
+    if(mIdx.y() < (int) mConsole->mBuffer.size()) {
+        ++mIdx.y();
+        int textSize = (int) mConsole->mBuffer[mIdx.y()].size();
+        if(mIdx.x() >= textSize) 
+            mIdx.x() = textSize;
+        Screen *sc = dynamic_cast<Screen *>(mConsole->window()->parent());
+        updatePosFromIdx(sc->nvgContext());
+    }
+}
+
+void Console::updateCursor(NVGcontext * ctx, float lineh) {
+    
+    // handle mouse cursor events
+    if (mMouseDownPos.x() != -1) {
+        if (mMouseDownModifier == GLFW_MOD_SHIFT)
+            mCaret.startSelection();
+        else 
+            mCaret.resetSelection();
+
+        mCaret.onClick(ctx, lineh, mMouseDownPos - mPos);
+
+        mMouseDownPos = Vector2i(-1, -1);
+    } else if (mMouseDragPos.x() != -1) {
+        mCaret.startSelection();
+        mCaret.onClick(ctx, lineh, mMouseDragPos - mPos);
+    } 
+//    else {
+//        // set cursor to last character
+//        if (mCursorPos.x() == -2)
+//            //mCursorPos = size; //update
+//            //std::cout << "**********    -2 *************" << std::endl;
+//            ;
+//    }
+
+//    if (mCursorPos == mSelectionPos)
+//        mSelectionPos = Vector2i(-1,-1);
+}
+
+
+bool Console::mouseMotionEvent(const Vector2i &p, const Vector2i & /* rel */,
+                               int /* button */, int /* modifiers */) {
+    //std::cout << "mouseMotionEvent " << p  << " " << rel << 
+    //        button << " " << modifiers <<  std::endl;
+    mMousePos = p;
+
+    setCursor(Cursor::IBeam);
+
+    if (focused()) {
+        return true;
+    }
+    return false;
+
+}
+
+bool Console::mouseDragEvent(const Vector2i &p, const Vector2i &/* rel*/,
+                             int /* button */, int /* modifiers */) {
+    //std::cout << "mouseDragEvent " << p << " " << rel << " " <<
+    //     button << modifiers << std::endl;
+    mMousePos = p;
+    mMouseDragPos = p;
+
+    if (focused()) {
+        return true;
+    }
+    return false;
+}
+
+bool Console::mouseButtonEvent(const Vector2i &p, int button, 
+                               bool down, int modifiers) {
+    //std::cout << "mouseButtonEvent " << p.x()<<","<<p.y() << " " << button << " " <<
+    //    down << " " << modifiers << std::endl;
+    
+    if (button == GLFW_MOUSE_BUTTON_1 && down && !mFocused) {
+        requestFocus();
+    }
+
+    if (focused()) {
+        if (down) {
+            mMouseDownPos = p;
+            mMouseDownModifier = modifiers;
+
+        } else {
+            mMouseDownPos = Vector2i(-1, -1);
+            mMouseDragPos = Vector2i(-1, -1);
+        }
+        return true;
+    }
+    return false;
+}
+
+//bool Console::focusEvent(bool focused) {
+//    Widget::focusEvent(focused);
+//
+//        if (focused) {
+//            mCursorPos = 0;
+//        } else {
+//            mCursorPos = -1;
+//            mSelectionPos = -1;
+//        }
+//
+//    return true;
+//}
+
+void Console::initBuffer(NVGcontext * ctx, float linew) {
+
+    int currPart = mTopPart;
+    int currRow  = mTopRow;
+    int currSubrow = mTopSubrow;
+
+//    const char *start, *end;
+    int maxrows = 128;
+    NVGtextRow rows[maxrows];
+    
+    //std::cout << "mNumRows = " << mNumRows << std::endl; 
+    
+    int i=0;
+    for(;i<mNumRows && currRow<(int)mHistory.size();) {
+        if(currPart) { // if history part
+            if(currSubrow < 0) {
+                //BufferRow bRow(mHistory[currRow], currRow;
+                mBuffer.emplace_back(mHistory[currRow]);
+                ++i;
+            }
+            else {
+                const char *text = mHistory[currRow].c_str();
+                int nsplits = nvgTextBreakLines(ctx, text, nullptr, linew, rows, maxrows);
+                
+                while(i<mNumRows && currSubrow < nsplits) {
+                    NVGtextRow *subrow = &rows[currSubrow];
+                    std::string temp(subrow->start, subrow->end);
+                    mBuffer.emplace_back(temp);
+                    ++i;
+                    ++currSubrow;
+                }
+            }
+            ++currRow;
+            currSubrow = 0;
+        }
+    }
+    
+    if(i<mNumRows){
+        if (mCommand[0] == "")
+            mBuffer.emplace_back("$");
+    }
+}
+
+bool Console::scrollEvent(const Vector2i &/* p */, const Vector2f &rel) {
+    float scrollAmount = rel.y() * (mSize.y() / 20.0f);
+    scrollAmount = rel.y()*5;
+    //float scrollh = height() *
+    //    std::min(1.0f, height() / (float)mChildPreferredHeight);
+
+    //mScroll = std::max((float) 0.0f, std::min((float) 1.0f,
+    //        mScroll - scrollAmount / (float)(mSize.y() - 8 - scrollh)));
+    //std::cout << "Scroll amount = " << scrollAmount << std::endl;
+    mScroll = scrollAmount;
+
     return true;
+}
+
+bool Console::keyboardEvent(int key, int /* scancode */, int action, int modifiers) {
+    if (focused()) {
+        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+            if (key == GLFW_KEY_LEFT) {
+                if (modifiers == GLFW_MOD_SHIFT)
+                    mCaret.startSelection();
+                else
+                    mCaret.resetSelection();
+
+                mCaret.moveLeft();
+            } else if (key == GLFW_KEY_RIGHT) {
+                if (modifiers == GLFW_MOD_SHIFT)
+                    mCaret.startSelection();
+                else
+                    mCaret.resetSelection();
+
+                mCaret.moveRight();
+            } else if (key == GLFW_KEY_UP) {
+                if (modifiers == GLFW_MOD_SHIFT)
+                    mCaret.startSelection();
+                else
+                    mCaret.resetSelection();
+
+                mCaret.moveUp();
+            } else if (key == GLFW_KEY_DOWN) {
+                if (modifiers == GLFW_MOD_SHIFT)
+                    mCaret.startSelection();
+                else
+                    mCaret.resetSelection();
+
+                mCaret.moveDown();
+//            } else if (key == GLFW_KEY_HOME) {
+//                if (modifiers == GLFW_MOD_SHIFT) {
+//                    if (mSelectionPos == -1)
+//                        mSelectionPos = mCursorPos;
+//                } else {
+//                    mSelectionPos = -1;
+//                }
+//
+//                mCursorPos = 0;
+//            } else if (key == GLFW_KEY_END) {
+//                if (modifiers == GLFW_MOD_SHIFT) {
+//                    if (mSelectionPos == -1)
+//                        mSelectionPos = mCursorPos;
+//                } else {
+//                    mSelectionPos = -1;
+//                }
+//
+//                mCursorPos = (int) mValueTemp.size();
+//            } else if (key == GLFW_KEY_BACKSPACE) {
+//                if (!deleteSelection()) {
+//                    if (mCursorPos > 0) {
+//                        mValueTemp.erase(mValueTemp.begin() + mCursorPos - 1);
+//                        mCursorPos--;
+//                    }
+//                }
+//            } else if (key == GLFW_KEY_DELETE) {
+//                if (!deleteSelection()) {
+//                    if (mCursorPos < (int) mValueTemp.length())
+//                        mValueTemp.erase(mValueTemp.begin() + mCursorPos);
+//                }
+            } else if (key == GLFW_KEY_ENTER) {
+                if (!mCommitted)
+                    focusEvent(false);
+//            } else if (key == GLFW_KEY_A && modifiers == SYSTEM_COMMAND_MOD) {
+//                mCursorPos = (int) mValueTemp.length();
+//                mSelectionPos = 0;
+//            } else if (key == GLFW_KEY_X && modifiers == SYSTEM_COMMAND_MOD) {
+//                copySelection();
+//                deleteSelection();
+//            } else if (key == GLFW_KEY_C && modifiers == SYSTEM_COMMAND_MOD) {
+//                copySelection();
+//            } else if (key == GLFW_KEY_V && modifiers == SYSTEM_COMMAND_MOD) {
+//                deleteSelection();
+//                pasteFromClipboard();
+            }
+
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool Console::keyboardCharacterEvent(unsigned int codepoint) {
+    if (focused()) {
+        std::ostringstream convert;
+        convert << (char) codepoint;
+
+//        deleteSelection();
+//        mValueTemp.insert(mCursorPos, convert.str());
+//        mCursorPos++;
+//
+        return true;
+    }
+
+    return false;
 }
 
 NAMESPACE_END(nanogui)
